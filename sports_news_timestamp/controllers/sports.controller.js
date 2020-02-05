@@ -3,14 +3,14 @@ const SportsArticle = require('../models/sports.model');
 const NodeCache = require( "node-cache" );
 const sportsCache = new NodeCache();
 
-// const redis = require('redis');
-// const redisClient = redis.createClient('redis://SG-globalTimestamp-27117.servers.mongodirector.com:6379');
-// redisClient.auth('4sdyNCZ7F3eRyJ3Ou73fifraLz9YpyNs', function(err){
-//     if(err){
-//         throw err;
-//     }
-//     console.log('successfully authenticated with redis cluster');
-// });
+const redis = require('redis');
+const redisClient = redis.createClient('redis://SG-Timestamp-30607.servers.mongodirector.com:6379');
+redisClient.auth('aYUYHprX0OqMlu6tjdKgWeVehAluLdku', function(err){
+    if(err){
+        throw err;
+    }
+    console.log('successfully authenticated with redis cluster');
+});
 
 exports.getAll = function (req, res) {
     const fullUrl = req.protocol + '://' + req.get('host') + req.originalUrl;
