@@ -8,8 +8,8 @@ const sports = require('./routes/sports.route');
 
 /*  MongoDB stuff  */
 const mongoose = require('mongoose');
-// let dev_db_url = 'mongodb+srv://jay:jaydahisar@forcaching-l6v6u.mongodb.net/test?retryWrites=true&w=majority';  // atlas
-let dev_db_url = 'mongodb://admin:0KDZYHie4r4JDmxq@SG-CachingMongo-27125.servers.mongodirector.com:50323,SG-CachingMongo-27126.servers.mongodirector.com:50323,SG-CachingMongo-27127.servers.mongodirector.com:50323/admin?replicaSet=RS-CachingMongo-0&ssl=true'; // scalingo
+// let dev_db_url = 'mongodb+srv://jay:jaydahisar@forcaching-l6v6u.mongodb.net/test?retryWrites=true&w=majority';
+let dev_db_url = 'mongodb://admin:8sKoxXn1lpM8pboa@SG-nicecache-30609.servers.mongodirector.com:27017/admin';
 let mongoDB = dev_db_url;
 mongoose.connect(mongoDB);
 mongoose.Promise = global.Promise;
