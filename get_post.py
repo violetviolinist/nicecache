@@ -11,10 +11,10 @@ from random import randint
 
 while True:
     val = randint(0,1)
-    
+    ip = "40.121.161.191"
     #Get
     if val == 0:
-        api = "http://localhost:1234/sports/Federer"
+        api = "http://"+ip+":1234/sports/Federer"
         
         r = requests.get(url = api, params = "") 
           
@@ -26,7 +26,7 @@ while True:
         long_text = open("./long_text.txt", "r").read()
         img = open("/home/jay/Downloads/federer.jpg", "rb").read()
         # print(long_text)
-        api = "http://localhost:1234/sports/"
+        api = "http://"+ip+":1234/sports"
         data = {
             "title":"Federer",
             "text": long_text,

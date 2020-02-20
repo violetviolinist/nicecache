@@ -52,6 +52,7 @@ exports.getById = function(req, res) {
         if(object){
             new Promise((resolve, reject) => {
                 if(object.lock === LOCKED){
+                    console.log('object is locked');
                     redisClient.rpush(fullUrl, requestID);
                     const intervalId = setInterval(() => {
                         redisClient.hgetall(flagUrl, function(err, object){
@@ -81,8 +82,8 @@ exports.getById = function(req, res) {
                     if(err){
                         throw err;
                     }
-                    console.log('found in local cache');
                     if(value){
+                        console.log('found in local cache');
                         const localTime = value[1];
                         console.log('got local time: ' + localTime);
                         if(localTime > object.timestamp){ //if local object is fresh, then return it
