@@ -13,7 +13,8 @@ redisClient.auth('aYUYHprX0OqMlu6tjdKgWeVehAluLdku', function(err){
 });
 
 exports.getAll = function (req, res) {
-    const fullUrl = req.protocol + '://' + req.get('host') + req.originalUrl;
+    const host = req.get('host').slice(0, -6);
+    const fullUrl = req.protocol + '://' + host + req.originalUrl + req.body.title;
     SportsArticle.find({}, function(err, doc) {
         if(err){
             throw err;
@@ -24,7 +25,8 @@ exports.getAll = function (req, res) {
 };
 
 exports.getById = function(req, res) {
-    const fullUrl = req.protocol + '://' + req.get('host') + req.originalUrl;
+    const host = req.get('host').slice(0, -6);
+    const fullUrl = req.protocol + '://' + host + req.originalUrl + req.body.title;
     redisClient.get(fullUrl, function(err, doc){
         if(err){
             throw err;
@@ -54,7 +56,8 @@ exports.getById = function(req, res) {
 };
 
 exports.article_create = function (req, res, next) {
-    const fullUrl = req.protocol + '://' + req.get('host') + req.originalUrl + req.body.title;
+    const host = req.get('host').slice(0, -6);
+    const fullUrl = req.protocol + '://' + host + req.originalUrl + req.body.title;
     let article = new SportsArticle(
         {
             date: new Date(),
@@ -76,7 +79,8 @@ exports.article_create = function (req, res, next) {
 };
 
 exports.article_delete = function (req, res) {
-    const fullUrl = req.protocol + '://' + req.get('host') + req.originalUrl + req.body.title;
+    const host = req.get('host').slice(0, -6);
+    const fullUrl = req.protocol + '://' + host + req.originalUrl + req.body.title;
     SportsArticle.deleteOne({
         title: req.body.title
     }, function (err){
@@ -89,7 +93,8 @@ exports.article_delete = function (req, res) {
 };
 
 exports.article_update = function (req, res) {
-    const fullUrl = req.protocol + '://' + req.get('host') + req.originalUrl + req.body.title;
+    const host = req.get('host').slice(0, -6);
+    const fullUrl = req.protocol + '://' + host + req.originalUrl + req.body.title;
     SportsArticle.findOneAndUpdate({ title: req.body.title }, { $set: req.body }, function(err, doc) {
         if(err){
             throw err;

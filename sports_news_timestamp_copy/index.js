@@ -17,7 +17,7 @@ let db = mongoose.connection;
 db.on('error', console.error.bind(console, 'MongoDB connection error:'));
 
 /*  Constants  */
-const PORT = 1234;
+const PORT = 1236;
 const MONGO_URL = 'mongodb://localhost:27017';
 const DB_NAME = 'sports_news';
 
