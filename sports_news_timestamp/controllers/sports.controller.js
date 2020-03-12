@@ -1,5 +1,6 @@
-const LOCKED = 1;
-const UNLOCKED = 0;
+// Contants for locked and unlocked flag on the global queue
+const LOCKED = '1';
+const UNLOCKED = '0';
 
 const SportsArticle = require('../models/sports.model');
 var crypto = require("crypto");
@@ -17,7 +18,7 @@ redisClient.auth('aYUYHprX0OqMlu6tjdKgWeVehAluLdku', function(err){
 });
 
 exports.getAll = function (req, res) {
-    const host = req.get('host').slice(0, -6);
+    const host = req.get('host').slice(0, -5);
     const fullUrl = req.protocol + '://' + host + req.originalUrl + req.body.title;
     sportsCache.get(fullUrl, function(err, value){
         if(!err && value){
@@ -40,12 +41,16 @@ exports.getAll = function (req, res) {
 };
 
 exports.getById = function(req, res) {
-    const host = req.get('host').slice(0, -6);
-    const fullUrl = req.protocol + '://' + host + req.originalUrl + req.body.title;
+    const host = req.get('host').slice(0, -5);
+    // key for object storage map (local cache)
+    const fullUrl = req.protocol + '://' + host + req.originalUrl;
+    // key for waiting queue (list)
+    const listKey = fullUrl + ':LIST';
+    console.log('\nGET Request:');
     const requestID = crypto.randomBytes(20).toString('hex');
 
     redisClient.hgetall(fullUrl, function(err, object){
-        console.log('receiver hgetall response');
+        console.log('received hgetall response\nObject lock status: ' + object.lock);
         if(err){
             throw err;
         }
@@ -53,31 +58,38 @@ exports.getById = function(req, res) {
             new Promise((resolve, reject) => {
                 if(object.lock === LOCKED){
                     console.log('object is locked');
-                    redisClient.rpush(fullUrl, requestID);
+                    redisClient.rpush(listKey, requestID);
+                    // start polling
                     const intervalId = setInterval(() => {
-                        redisClient.hgetall(flagUrl, function(err, object){
+                        redisClient.hgetall(fullUrl, function(err, object){
                             if(err){
                                 throw err;
                             }
                             if(object.lock === UNLOCKED){
                                 // poll front of queue
-                                redisClient.lrange(fullUrl, 0, -1, (err, arr) => {
+                                redisClient.lrange(listKey, 0, -1, (err, arr) => {
                                     if(err){
                                     throw err;
-                                    } 
+                                    }
+                                    console.log('arr[0]:' + arr[0] + '\n' + 'requestId: ' + requestID + '\n');
                                     if(arr[0] === requestID){ // if this request's turn is up, then pop front of queue
-                                        redisClient.lpop(fullUrl);
+                                        redisClient.lpop(listKey);
                                         clearInterval(intervalId);
-                                        resolve(1);
+                                        redisClient.hgetall(fullUrl, (err, obj) => {
+                                            if(err){
+                                                throw err;
+                                            }
+                                            resolve(obj);
+                                        })
                                     }
                                 });
                             }
                         });
                     }, 500);
-                }else{
-                    resolve(1);
+                }else{ // if object was found unlocked, then resolve it
+                    resolve(object);
                 }
-            }).then((value) => {
+            }).then((object) => { // polling over; execute the read request as usual
                 sportsCache.get(fullUrl, function(err, value){
                     if(err){
                         throw err;
@@ -87,12 +99,6 @@ exports.getById = function(req, res) {
                         const localTime = value[1];
                         console.log('got local time: ' + localTime);
                         if(localTime > object.timestamp){ //if local object is fresh, then return it
-                            // sportsCache.get(fullUrl, function(err, value){
-                            //     if(!err && value){
-                            //         console.log('found in cache (by id)');
-                            //         res.send(value);
-                            //     }
-                            // });
                             res.send(value);
                         }else{ // otherwise, get from DB, set local cache and return
                             SportsArticle.findOne({ title: req.params.title }, function(err, doc){
@@ -122,7 +128,7 @@ exports.getById = function(req, res) {
                     }
                 });
             });
-        }else{
+        }else{ // object not found in global cache; perform read as usual
             console.log('not found in global cache');
             SportsArticle.findOne({ title: req.params.title }, function(err, doc){
                 if(err){
@@ -146,7 +152,7 @@ exports.getById = function(req, res) {
 };
 
 exports.article_create = function (req, res, next) {
-    const host = req.get('host').slice(0, -6);
+    const host = req.get('host').slice(0, -5);
     const fullUrl = req.protocol + '://' + host + req.originalUrl + req.body.title;    
     let article = new SportsArticle(
         {
@@ -169,7 +175,7 @@ exports.article_create = function (req, res, next) {
 };
 
 exports.article_delete = function (req, res) {
-    const host = req.get('host').slice(0, -6);
+    const host = req.get('host').slice(0, -5);
     const fullUrl = req.protocol + '://' + host + req.originalUrl + req.body.title;    
     SportsArticle.deleteOne({
         title: req.body.title
@@ -183,31 +189,33 @@ exports.article_delete = function (req, res) {
 };
 
 exports.article_update = function (req, res) {
-    const host = req.get('host').slice(0, -6);
+    const host = req.get('host').slice(0, -5);
     const fullUrl = req.protocol + '://' + host + req.originalUrl + req.body.title;
+    const listKey = fullUrl + ':LIST';
+    console.log('\nPUT Request:');
     const requestID = crypto.randomBytes(20).toString('hex');
 
     redisClient.hgetall(fullUrl, function(err, object){
         if(err){
             throw err;
         }
-        console.log('received hgetall request');
+        console.log('received hgetall response');
         new Promise((resolve, reject) => {
             if(!object){
                 resolve(1);
             }
             if(object.lock === LOCKED){
                 console.log('object is locked');
-                redisClient.rpush(fullUrl, requestID);
+                redisClient.rpush(listKey, requestID);
                 const intervalId = setInterval(() => {
-                    redisClient.hgetall(flagUrl, function(err, object){
+                    redisClient.hgetall(fullUrl, function(err, object){
                         if(err){
                             throw err;
                         }
                         if(object.lock === UNLOCKED){
-                            redisClient.lrange(fullUrl, 0, -1, (err, arr) => {
+                            redisClient.lrange(listKey, 0, -1, (err, arr) => {
                                 if(arr[0] === requestID){
-                                    redisClient.lpop(fullUrl);
+                                    redisClient.lpop(listKey);
                                     redisClient.hmset(fullUrl, { 'lock': LOCKED });
                                     clearInterval(intervalId);
                                     resolve(1);
@@ -216,7 +224,7 @@ exports.article_update = function (req, res) {
                         }
                     });
                 }, 500);
-            }else{
+            }else{ // if object found unlocked, proceed with write request as usual
                 console.log('object is unlocked');
                 resolve(1);
             }

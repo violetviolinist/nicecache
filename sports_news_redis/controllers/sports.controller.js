@@ -13,7 +13,7 @@ redisClient.auth('aYUYHprX0OqMlu6tjdKgWeVehAluLdku', function(err){
 });
 
 exports.getAll = function (req, res) {
-    const host = req.get('host').slice(0, -6);
+    const host = req.get('host').slice(0, -5);
     const fullUrl = req.protocol + '://' + host + req.originalUrl + req.body.title;
     SportsArticle.find({}, function(err, doc) {
         if(err){
@@ -25,7 +25,7 @@ exports.getAll = function (req, res) {
 };
 
 exports.getById = function(req, res) {
-    const host = req.get('host').slice(0, -6);
+    const host = req.get('host').slice(0, -5);
     const fullUrl = req.protocol + '://' + host + req.originalUrl + req.body.title;
     redisClient.get(fullUrl, function(err, doc){
         if(err){
@@ -56,7 +56,7 @@ exports.getById = function(req, res) {
 };
 
 exports.article_create = function (req, res, next) {
-    const host = req.get('host').slice(0, -6);
+    const host = req.get('host').slice(0, -5);
     const fullUrl = req.protocol + '://' + host + req.originalUrl + req.body.title;
     let article = new SportsArticle(
         {
@@ -79,7 +79,7 @@ exports.article_create = function (req, res, next) {
 };
 
 exports.article_delete = function (req, res) {
-    const host = req.get('host').slice(0, -6);
+    const host = req.get('host').slice(0, -5);
     const fullUrl = req.protocol + '://' + host + req.originalUrl + req.body.title;
     SportsArticle.deleteOne({
         title: req.body.title
@@ -93,7 +93,7 @@ exports.article_delete = function (req, res) {
 };
 
 exports.article_update = function (req, res) {
-    const host = req.get('host').slice(0, -6);
+    const host = req.get('host').slice(0, -5);
     const fullUrl = req.protocol + '://' + host + req.originalUrl + req.body.title;
     SportsArticle.findOneAndUpdate({ title: req.body.title }, { $set: req.body }, function(err, doc) {
         if(err){
