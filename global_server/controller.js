@@ -1,3 +1,4 @@
+//key title value 
 //DATA
 //status
 /* for  queuing of data */
@@ -7,7 +8,7 @@
 //latestWriteTimeStamp
 
 
-
+//key title+":"+queure
 //QUEUE
 //id of request
 //prevwriteId 
@@ -53,7 +54,7 @@ function getById(title, present, requestId, timestamp) {
                 return getElementFromDataBase(title);
             //if locked , add to the queue and wait
             else
-                redisClient.rpush(title+':Queue', requestId +":"+result.latestInQueueWriteId)
+                redisClient.rpush(title+':Queue', requestId +":"+result.latestInQueueWriteId);
         }
         // if present in local cahe of server 
         else {
@@ -69,7 +70,7 @@ function getById(title, present, requestId, timestamp) {
                     return getElementFromDataBase(title);
             }
             else
-                redisClient.rpush(title+':Queue', requestId +":"+result.latestInQueueWriteId)
+                redisClient.rpush(title+':Queue', requestId +":"+result.latestInQueueWriteId);
         }
     });
 }
@@ -79,17 +80,20 @@ function updateByID(title, newData, present, requestId, timestamp) {
     redisClient.hgetall(title, function (error, result) {
 
         if(result == null || result.status == UNLOCKED) {
+            // set status as locked and change latest Inqueuewriteid
             SportsArticle.findOneAndUpdate({ title: title }, newData, function(err) {
                 if(err){
                     throw err;
                 }
+                // set inqueue write id as the result.inqueueWriteId
                 redisClient.hmset(title, {status:UNLOCKED, latestCompleteWriteId: requestId,
-                                          latestInQueueWriteId:null ,
+                                          latestInQueueWriteId: result.latestInQueueWriteId ,
                                           latestWriteTimestamp:Date.now()});
                 // return success
             });
         }
         else {
+            //change latest inqueueWriteId
             redisClient.rpush(title+':Queue', requestId +":"+requestId);
         }
 
