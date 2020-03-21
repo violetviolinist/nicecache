@@ -32,11 +32,15 @@ const UNLOCKED = 0;
 
 
 function getElementFromDataBase(title) {
-    SportsArticle.findOne({ title: req.params.title }, function(err, doc){
-        if(err){
-            throw err;
-        }
-        return doc;
+    new Promise((resolve, reject) => {
+        SportsArticle.findOne({ title: req.params.title }, function(err, doc){
+            if(err){
+                throw err;
+            }
+            resolve(doc);
+        });
+    }).then((ans) => {
+        return ans;
     });
 }
 
@@ -64,8 +68,8 @@ function getById(title, present, requestId, timestamp) {
 
             else if(result.status == UNLOCKED) {
                  // local cache already has fresh data 
-                if(result.latestWriteTimestamp && timestamp > result.latestWriteTimestamp){}
-
+                if(result.latestWriteTimestamp && timestamp > result.latestWriteTimestamp){
+                }
                 else 
                     return getElementFromDataBase(title);
             }

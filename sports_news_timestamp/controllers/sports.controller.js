@@ -57,36 +57,48 @@ exports.getById = function(req, res) {
         if(err){
             throw err;
         }
+        // data object has an entry in the global cache
         if(object){
             new Promise((resolve, reject) => {
                 if(object.lock === LOCKED){
                     console.log('object is locked');
-                    redisClient.rpush(listKey, requestID);
+                    // redisClient.rpush(listKey, requestID);
+                    redisClient.hset(listKey, { 'requestId': object.latestWriteRequestId });
                     // start polling
                     const intervalId = setInterval(() => {
                         redisClient.hgetall(fullUrl, function(err, object){
                             if(err){
                                 throw err;
                             }
-                            if(object.lock === UNLOCKED){
-                                // poll front of queue
-                                redisClient.lrange(listKey, 0, -1, (err, arr) => {
-                                    if(err){
+                            redisClient.hgetall(listKey, function(err, obj){
+                                if(err){
                                     throw err;
-                                    }
-                                    console.log('arr[0]:' + arr[0] + '\n' + 'requestId: ' + requestID + '\n');
-                                    if(arr[0] === requestID){ // if this request's turn is up, then pop front of queue
-                                        redisClient.lpop(listKey);
-                                        clearInterval(intervalId);
-                                        redisClient.hgetall(fullUrl, (err, obj) => {
-                                            if(err){
-                                                throw err;
-                                            }
-                                            resolve(obj);
-                                        })
-                                    }
-                                });
-                            }
+                                }
+                                if(obj.requestId === object.latestCompletedWriteRequestId){
+                                    redisClient.hdel(listKey, 'requestId');
+                                    clearInterval(intervalId);
+                                    resolve(object);
+                                }
+                            });
+                            // if(object.lock === UNLOCKED){
+                            //     // poll front of queue
+                            //     redisClient.lrange(listKey, 0, -1, (err, arr) => {
+                            //         if(err){
+                            //         throw err;
+                            //         }
+                            //         console.log('arr[0]:' + arr[0] + '\n' + 'requestId: ' + requestID + '\n');
+                            //         if(arr[0] === requestID){ // if this request's turn is up, then pop front of queue
+                            //             redisClient.lpop(listKey);
+                            //             clearInterval(intervalId);
+                            //             redisClient.hgetall(fullUrl, (err, obj) => {
+                            //                 if(err){
+                            //                     throw err;
+                            //                 }
+                            //                 resolve(obj);
+                            //             })
+                            //         }
+                            //     });
+                            // }
                         });
                     }, 500);
                 }else{ // if object was found unlocked, then resolve it
@@ -101,7 +113,7 @@ exports.getById = function(req, res) {
                         console.log('found in local cache');
                         const localTime = value[1];
                         console.log('got local time: ' + localTime);
-                        if(localTime > object.timestamp){ //if local object is fresh, then return it
+                        if(localTime > object.latestWriteTimestamp){ //if local object is fresh, then return it
                             res.send(value);
                         }else{ // otherwise, get from DB, set local cache and return
                             SportsArticle.findOne({ title: req.params.title }, function(err, doc){
@@ -138,7 +150,12 @@ exports.getById = function(req, res) {
                     throw err;
                 }
                 console.log('before redis set');
-                redisClient.hmset(fullUrl, { 'timestamp': Date.now(), 'lock': UNLOCKED }, function(err) {
+                redisClient.hmset(fullUrl, { 
+                    'latestWriteTimestamp': Date.now(), 
+                    'lock': UNLOCKED,
+                    'latestWriteRequestId': 'nil',
+                    'latestCompletedWriteRequestId': 'nil'
+                }, function(err) {
                     if(err){
                         throw err;
                     }
@@ -210,6 +227,7 @@ exports.article_update = function (req, res) {
             if(object.lock === LOCKED){
                 console.log('object is locked');
                 redisClient.rpush(listKey, requestID);
+                redisClient.hmset(fullUrl, { 'latestWriteRequestId': requestID });
                 const intervalId = setInterval(() => {
                     redisClient.hgetall(fullUrl, function(err, object){
                         if(err){
@@ -240,7 +258,12 @@ exports.article_update = function (req, res) {
                     throw err;
                 }
                 console.log('after actual update');
-                redisClient.hmset(fullUrl, { 'timestamp': Date.now(), 'lock': UNLOCKED });
+                redisClient.hmset(fullUrl, { 
+                'latestWriteTimestamp': Date.now(), 
+                'lock': UNLOCKED,
+                'latestWriteRequestId': requestID,
+                'latestCompletedWriteRequestId': requestID,
+            });
                 console.log('object is unlocked after update');
                 res.send('Article updated successfully');
             });
