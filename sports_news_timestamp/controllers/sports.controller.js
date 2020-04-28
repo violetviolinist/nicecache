@@ -47,10 +47,10 @@ exports.getById = function(req, res) {
     const host = req.get('host').slice(0, -5);
     // key for object storage map (local cache)
     const fullUrl = req.protocol + '://' + host + req.originalUrl;
-    // key for waiting queue (list)
-    const listKey = fullUrl + ':LIST';
-    console.log('\nGET Request:');
     const requestID = crypto.randomBytes(20).toString('hex');
+    // key for waiting queue (list; unique for every read request) 
+    const listKey = fullUrl + ':LIST:' + requestID;
+    console.log('\nGET Request:');
 
     redisClient.hgetall(fullUrl, function(err, object){
         console.log('received hgetall response\nObject lock status: ' + object.lock);
@@ -237,7 +237,7 @@ exports.article_update = function (req, res) {
                             redisClient.lrange(listKey, 0, -1, (err, arr) => {
                                 if(arr[0] === requestID){
                                     redisClient.lpop(listKey);
-                                    redisClient.hmset(fullUrl, { 'lock': LOCKED });
+                                    // redisClient.hmset(fullUrl, { 'lock': LOCKED });
                                     clearInterval(intervalId);
                                     resolve(1);
                                 }
@@ -261,7 +261,6 @@ exports.article_update = function (req, res) {
                 redisClient.hmset(fullUrl, { 
                 'latestWriteTimestamp': Date.now(), 
                 'lock': UNLOCKED,
-                'latestWriteRequestId': requestID,
                 'latestCompletedWriteRequestId': requestID,
             });
                 console.log('object is unlocked after update');
