@@ -1,15 +1,21 @@
-const LOCKED = 1;
-const UNLOCKED = 0;
+// Contants for locked and unlocked flag on the global queue
+const LOCKED = '1';
+const UNLOCKED = '0';
 
 const SportsArticle = require('../models/sports.model');
+// To generate random request IDs
 var crypto = require("crypto");
 
+// Local in-process cache library
 const NodeCache = require( "node-cache" );
 const sportsCache = new NodeCache();
 
 const redis = require('redis');
-const redisClient = redis.createClient('redis://SG-Timestamp-30607.servers.mongodirector.com:6379');
-redisClient.auth('aYUYHprX0OqMlu6tjdKgWeVehAluLdku', function(err){
+
+// const redisClient = redis.createClient(6379);
+
+const redisClient = redis.createClient('redis://SG-beproject2020-33787.servers.mongodirector.com:6379');
+redisClient.auth('T1uuPcxVGED0j5eImVDkSo0a3WE8NPYj', function(err){
     if(err){
         throw err;
     }
@@ -17,7 +23,11 @@ redisClient.auth('aYUYHprX0OqMlu6tjdKgWeVehAluLdku', function(err){
 });
 
 exports.getAll = function (req, res) {
-    const host = req.get('host').slice(0, -6);
+    // slice out port number to allow replicated servers with different port numbers to have same key
+    const host = req.get('host').slice(0, -5);
+    // key - full url  
+    // value - arr of value(doc) & date
+    // response send only value
     const fullUrl = req.protocol + '://' + host + req.originalUrl + req.body.title;
     sportsCache.get(fullUrl, function(err, value){
         if(!err && value){
@@ -26,11 +36,11 @@ exports.getAll = function (req, res) {
         }else{
             SportsArticle.find({}, function(err, doc) {
                 if(err){
-                    throw err;
+                    res.status(500).send('Mongo find request failed');
                 }
                 sportsCache.set(fullUrl, [doc, Date.now()], function(err){
                     if(err){
-                        throw err;
+                        res.status(500).send('Node cache set failed');
                     }
                 });
                 res.send(doc);
@@ -40,102 +50,137 @@ exports.getAll = function (req, res) {
 };
 
 exports.getById = function(req, res) {
-    const host = req.get('host').slice(0, -6);
-    const fullUrl = req.protocol + '://' + host + req.originalUrl + req.body.title;
+    const host = req.get('host').slice(0, -5);
+    // key for object storage map (local cache)
+    const fullUrl = req.protocol + '://' + host + req.originalUrl;
     const requestID = crypto.randomBytes(20).toString('hex');
+    // key for waiting queue (list; unique for every read request) 
+    const listKey = fullUrl + ':LIST:' + requestID;
+    console.log('\nGET Request:');
 
     redisClient.hgetall(fullUrl, function(err, object){
-        console.log('receiver hgetall response');
         if(err){
-            throw err;
+            res.status(500).send('Redis initial fetch failed');
         }
-        if(object){
+        // data object has an entry in the global cache
+        if(object && typeof object.latestCompletedWriteRequestId !== 'undefined'){
+            if(isNaN(object.readCount)){
+                redisClient.hmset(fullUrl, {
+                    'readCount': 1,
+                }); 
+            } else{
+                const newReadCount = Number(object.readCount) + 1;
+                redisClient.hmset(fullUrl, {
+                    'readCount': newReadCount,
+                });
+                console.log('READ: readCount updated to ' + newReadCount);
+            }
+            console.log('READ: received hgetall response\nREAD: Object lock status: ' + object.lock);
             new Promise((resolve, reject) => {
                 if(object.lock === LOCKED){
-                    redisClient.rpush(fullUrl, requestID);
+                    const currentLatestWriteRequestId = object.latestWriteRequestId;
+                    // start polling
+                    console.log('READ: before starting polling');
                     const intervalId = setInterval(() => {
-                        redisClient.hgetall(flagUrl, function(err, object){
+                        redisClient.hgetall(fullUrl, function(err, object){
                             if(err){
-                                throw err;
+                                res.status(500).send('Redis fetch failed while polling');
                             }
-                            if(object.lock === UNLOCKED){
-                                // poll front of queue
-                                redisClient.lrange(fullUrl, 0, -1, (err, arr) => {
-                                    if(err){
-                                    throw err;
-                                    } 
-                                    if(arr[0] === requestID){ // if this request's turn is up, then pop front of queue
-                                        redisClient.lpop(fullUrl);
-                                        clearInterval(intervalId);
-                                        resolve(1);
-                                    }
-                                });
+                            // console.log('currentLatestWriteID: ' + currentLatestWriteRequestId);
+                            // console.log('object.latestCompletedWriteID: ' + object.latestCompletedWriteRequestId);
+                            if(currentLatestWriteRequestId === object.latestCompletedWriteRequestId){
+                                console.log('READ: saved writeRequestId and latestCompletedWriteRequestIds match, ending polling');
+                                // redisClient.hdel(listKey, 'requestId');
+                                clearInterval(intervalId);
+                                resolve(object);
                             }
                         });
                     }, 500);
-                }else{
-                    resolve(1);
+                }else{ // if object was found unlocked, then resolve it
+                    resolve(object);
                 }
-            }).then((value) => {
+            }).then((object) => { // polling over; execute the read request as usual
                 sportsCache.get(fullUrl, function(err, value){
                     if(err){
-                        throw err;
+                        res.status(500).send('READ: After polling: Node cache fetch failed');
                     }
-                    console.log('found in local cache');
                     if(value){
+                        console.log('READ: object found in local cache');
                         const localTime = value[1];
-                        console.log('got local time: ' + localTime);
-                        if(localTime > object.timestamp){ //if local object is fresh, then return it
-                            // sportsCache.get(fullUrl, function(err, value){
-                            //     if(!err && value){
-                            //         console.log('found in cache (by id)');
-                            //         res.send(value);
-                            //     }
-                            // });
+                        // console.log('got local time: ' + localTime);
+                        if(localTime > object.latestWriteTimestamp){ //if local object is fresh, then return it
+                            console.log("READ: local value is fresh (timestamps match)");
+                            const newCompletedReadCount = Number(object.completedReadCount) + 1;
+                            redisClient.hmset(fullUrl, {
+                                'completedReadCount': newCompletedReadCount,
+                            });
+                            console.log('READ: completedReadCount updated to ' + newCompletedReadCount);
                             res.send(value);
                         }else{ // otherwise, get from DB, set local cache and return
+                            console.log('READ: local value is stale (timestamps do not match)');
                             SportsArticle.findOne({ title: req.params.title }, function(err, doc){
                                 if(err){
-                                    throw err;
+                                    res.status(500).send('After polling: fetch from DB failed');
                                 }
                                 sportsCache.set(fullUrl, [doc, Date.now()], function(err){
                                     if(err){
-                                        throw err;
+                                        res.status(500).send('After polling: setting local cache failed');
                                     }
                                 });
+                                const newCompletedReadCount = Number(object.completedReadCount) + 1;
+                                redisClient.hmset(fullUrl, {
+                                    'completedReadCount': newCompletedReadCount,
+                                });
+                                console.log('READ: completedReadCount updated to ' + newCompletedReadCount);
                                 res.send(doc);
                             });
                         }
                     }else{  // if data not present in local cache
+                        console.log('READ: object not found in local cache');
                         SportsArticle.findOne({ title: req.params.title }, function(err, doc){
                             if(err){
-                                throw err;
+                                res.status(500).send('After polling: fetch from DB failed');
                             }
                             sportsCache.set(fullUrl, [doc, Date.now()], function(err){
                                 if(err){
-                                    throw err;
+                                    res.status(500).send('READ: After polling: setting local cache failed');
                                 }
+                            });
+                            redisClient.hgetall(fullUrl, (err, obj) => {
+                                const newCompletedReadCount = Number(obj.completedReadCount) + 1;
+                                redisClient.hmset(fullUrl, {
+                                    'completedReadCount': newCompletedReadCount,
+                                });
+                                console.log('READ: completedReadCount updated to ' + newCompletedReadCount);
                             });
                             res.send(doc);
                         });
                     }
                 });
             });
-        }else{
-            console.log('not found in global cache');
+        }else{ // object not found in global cache; perform read as usual
+            console.log('READ: no entry found in global cache');
             SportsArticle.findOne({ title: req.params.title }, function(err, doc){
                 if(err){
-                    throw err;
+                    res.status(500).send('no redis entry found: DB fetch failed');
                 }
-                console.log('before redis set');
-                redisClient.hmset(fullUrl, { 'timestamp': Date.now(), 'lock': UNLOCKED }, function(err) {
+                console.log('READ: making entry to redis with initial values');
+                redisClient.hmset(fullUrl, {  
+                    'latestWriteTimestamp': Date.now(), 
+                    'lock': UNLOCKED,
+                    'latestWriteRequestId': 'nil',
+                    'latestCompletedWriteRequestId': 'nil',
+                    'readCount': 0,
+                    'completedReadCount': 0,
+                }, function(err) {
                     if(err){
-                        throw err;
+                        res.status(500).send('no redis entry found: redis set after DB fetch failed');
                     }
                     sportsCache.set(fullUrl, [doc, Date.now()], function(err){
                         if(err){
-                            throw err;
+                            res.status(500).send('no redis entry found: node cache set after DB fetch failed');
                         }
+                        console.log('READ: inserted object into NodeCache');
                     });
                 });
                 res.send(doc);
@@ -145,7 +190,7 @@ exports.getById = function(req, res) {
 };
 
 exports.article_create = function (req, res, next) {
-    const host = req.get('host').slice(0, -6);
+    const host = req.get('host').slice(0, -5);
     const fullUrl = req.protocol + '://' + host + req.originalUrl + req.body.title;    
     let article = new SportsArticle(
         {
@@ -161,20 +206,20 @@ exports.article_create = function (req, res, next) {
 
     article.save(function (err) {
         if (err) {
-            throw err;
+            res.status(500).send('DB creation failed');
         }
         res.send('Article uploaded successfully')
     })
 };
 
 exports.article_delete = function (req, res) {
-    const host = req.get('host').slice(0, -6);
+    const host = req.get('host').slice(0, -5);
     const fullUrl = req.protocol + '://' + host + req.originalUrl + req.body.title;    
     SportsArticle.deleteOne({
         title: req.body.title
     }, function (err){
         if(err){
-            throw err;
+            res.status(500).send('DB deletion failed');
         }
         redisClient.del(fullUrl);
         res.send('Article deleted succesfully');
@@ -182,54 +227,71 @@ exports.article_delete = function (req, res) {
 };
 
 exports.article_update = function (req, res) {
-    const host = req.get('host').slice(0, -6);
+    const host = req.get('host').slice(0, -5);
     const fullUrl = req.protocol + '://' + host + req.originalUrl + req.body.title;
+    const listKey = fullUrl + ':LIST';
+    console.log('\nPUT Request:');
     const requestID = crypto.randomBytes(20).toString('hex');
 
     redisClient.hgetall(fullUrl, function(err, object){
         if(err){
-            throw err;
+            res.status(500).send('UPDATE: redis initial fetch failed');
         }
-        console.log('received hgetall request');
+        console.log('WRITE: received hgetall response');
         new Promise((resolve, reject) => {
             if(!object){
+                console.log('WRITE: no Redis entry for the object found');
                 resolve(1);
             }
-            if(object.lock === LOCKED){
-                console.log('object is locked');
-                redisClient.rpush(fullUrl, requestID);
-                const intervalId = setInterval(() => {
-                    redisClient.hgetall(flagUrl, function(err, object){
-                        if(err){
-                            throw err;
-                        }
-                        if(object.lock === UNLOCKED){
-                            redisClient.lrange(fullUrl, 0, -1, (err, arr) => {
-                                if(arr[0] === requestID){
-                                    redisClient.lpop(fullUrl);
-                                    redisClient.hmset(fullUrl, { 'lock': LOCKED });
-                                    clearInterval(intervalId);
-                                    resolve(1);
-                                }
-                            });
-                        }
-                    });
-                }, 500);
-            }else{
-                console.log('object is unlocked');
-                resolve(1);
-            }
+            console.log('WRITE: Redis entry for the object found');
+            const previousReads = object.readCount;
+            console.log('WRITE: previousReads value saved: ' + previousReads);
+            redisClient.hmset(fullUrl, {
+                'readCount': 0,
+                'latestWriteRequestId': requestID,
+            });
+            console.log('WRITE: readCount value set to 0');
+            redisClient.rpush(listKey, requestID);
+            console.log('WRITE: current requestId pushed to queue');
+            console.log('WRITE: Starting poll procedure...');
+            const intervalId = setInterval(() => {
+                redisClient.hgetall(fullUrl, function(err, obj){
+                    if(err){
+                        // element on right end may not be the current request's ID (Find a solution)
+                        redisClient.rpop(listKey);
+                        redisClient.hmset(fullUrl, { 'latestWriteRequestId': oldLatestWriteRequestId });
+                        res.status(500).send('UPDATE: redit fetch while polling failed');
+                    }
+                    if(obj.lock === UNLOCKED){
+                        redisClient.lrange(listKey, 0, -1, (err, arr) => {
+                            // console.log('queue left end: ' + arr[0] + '\nrequestID: ' + requestID);
+                            // console.log('previousReads: ' + previousReads + '\ncompletedReadCount: ' + obj.completedReadCount);
+                            if(arr[0] === requestID && previousReads === obj.completedReadCount){
+                                console.log('WRITE: object found unlocked, previousReads: ' + previousReads + ' obj.completedReads: ' + obj.completedReadCount);
+                                redisClient.lpop(listKey);
+                                clearInterval(intervalId);
+                                resolve(1);
+                            }
+                        });
+                    }
+                });
+            }, 500);
         }).then((value) => {
-            console.log('before actual update');
             redisClient.hmset(fullUrl, { 'lock': LOCKED });
-            console.log('object is lockec before writing');
+            console.log('WRITE: object is locked before writing');
             SportsArticle.findOneAndUpdate({ title: req.body.title }, req.body, function(err) {
                 if(err){
-                    throw err;
+                    redisClient.hmset(fullUrl, { 'lock': UNLOCKED });
+                    res.status(500).send('UPDATE: DB write failed');
                 }
-                console.log('after actual update');
-                redisClient.hmset(fullUrl, { 'timestamp': Date.now(), 'lock': UNLOCKED });
-                console.log('object is unlocked after update');
+                console.log('WRITE: after actual update');
+                redisClient.hmset(fullUrl, { 
+                'latestWriteTimestamp': Date.now(), 
+                'lock': UNLOCKED,
+                'latestCompletedWriteRequestId': requestID,
+                'completedReadCount': 0,
+            });
+                console.log('WRITE: object is unlocked after update, completedReadCount set to 0');
                 res.send('Article updated successfully');
             });
         });

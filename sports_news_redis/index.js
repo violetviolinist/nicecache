@@ -8,7 +8,7 @@ const sports = require('./routes/sports.route');
 
 /*  MongoDB stuff  */
 const mongoose = require('mongoose');
-let dev_db_url = 'mongodb://admin:8sKoxXn1lpM8pboa@SG-nicecache-30609.servers.mongodirector.com:27017/admin';
+let dev_db_url = 'mongodb://admin:Bp0QxHTG0LugWFKE@SG-beproject2020-33786.servers.mongodirector.com:27017/admin';
 let mongoDB = dev_db_url;
 mongoose.connect(mongoDB);
 mongoose.set('useFindAndModify', false);

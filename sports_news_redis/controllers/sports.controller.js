@@ -4,8 +4,8 @@ const NodeCache = require( "node-cache" );
 const sportsCache = new NodeCache();
 
 const redis = require('redis');
-const redisClient = redis.createClient('redis://SG-Timestamp-30607.servers.mongodirector.com:6379');
-redisClient.auth('aYUYHprX0OqMlu6tjdKgWeVehAluLdku', function(err){
+const redisClient = redis.createClient('redis://SG-beproject2020-33787.servers.mongodirector.com:6379');
+redisClient.auth('T1uuPcxVGED0j5eImVDkSo0a3WE8NPYj', function(err){
     if(err){
         throw err;
     }
