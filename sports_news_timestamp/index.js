@@ -11,7 +11,10 @@ const mongoose = require('mongoose');
 // let dev_db_url = 'mongodb://localhost:27017/sports/';
 let dev_db_url = 'mongodb://admin:Bp0QxHTG0LugWFKE@SG-beproject2020-33786.servers.mongodirector.com:27017/admin';
 let mongoDB = dev_db_url;
-mongoose.connect(mongoDB, (err, db) => {
+mongoose.connect(mongoDB, {
+    useUnifiedTopology: true,
+    useNewUrlParser: true
+}, (err, db) => {
     if(err){
         throw err;
     }
