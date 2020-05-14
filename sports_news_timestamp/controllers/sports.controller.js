@@ -79,6 +79,7 @@ exports.getById = function(req, res) {
             new Promise((resolve, reject) => {
                 if(object.lock === LOCKED){
                     const currentLatestWriteRequestId = object.latestWriteRequestId;
+                    console.log('READ: currentLatestWriteRequestId fetched from redis and set as: ' + currentLatestWriteRequestId);
                     // start polling
                     console.log('READ: before starting polling');
                     const intervalId = setInterval(() => {
@@ -89,7 +90,7 @@ exports.getById = function(req, res) {
                             // console.log('currentLatestWriteID: ' + currentLatestWriteRequestId);
                             // console.log('object.latestCompletedWriteID: ' + object.latestCompletedWriteRequestId);
                             if(currentLatestWriteRequestId === object.latestCompletedWriteRequestId){
-                                console.log('READ: saved writeRequestId and latestCompletedWriteRequestIds match, ending polling');
+                                console.log('READ: currentLatestWriteRequestId and latestCompletedWriteRequestIds match, ending polling');
                                 // redisClient.hdel(listKey, 'requestId');
                                 clearInterval(intervalId);
                                 resolve(object);
@@ -251,6 +252,7 @@ exports.article_update = function (req, res) {
                 'latestWriteRequestId': requestID,
             });
             console.log('WRITE: readCount value set to 0');
+            console.log('WRITE: latestWriteRequetsId at timestamp server set as this request\'s Id: ' + requestID);
             redisClient.rpush(listKey, requestID);
             console.log('WRITE: current requestId pushed to queue');
             console.log('WRITE: Starting poll procedure...');
@@ -259,7 +261,7 @@ exports.article_update = function (req, res) {
                     if(err){
                         // element on right end may not be the current request's ID (Find a solution)
                         redisClient.rpop(listKey);
-                        redisClient.hmset(fullUrl, { 'latestWriteRequestId': oldLatestWriteRequestId });
+                        redisClient.hmset(fullUrl, { 'WRITE: latestWriteRequestId': oldLatestWriteRequestId });
                         res.status(500).send('UPDATE: redit fetch while polling failed');
                     }
                     if(obj.lock === UNLOCKED){
@@ -292,6 +294,7 @@ exports.article_update = function (req, res) {
                 'completedReadCount': 0,
             });
                 console.log('WRITE: object is unlocked after update, completedReadCount set to 0');
+                console.log('WRITE: latestCompletedWriteRequestId set as this request\'s Id: ' + requestID);
                 res.send('Article updated successfully');
             });
         });
